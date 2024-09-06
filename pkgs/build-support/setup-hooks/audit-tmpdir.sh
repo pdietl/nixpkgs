@@ -26,6 +26,32 @@ auditTmpdir() {
             fi
         fi
 
+        if isELF "$i"; then
+            local type
+            local readelf_info
+            readelf_info=$(readelf -h -d "$i")
+
+            if [[ $readelf_info =~ Type:[[:space:]]+([^ ]+)' ' ]]; then
+                type=${BASH_REMATCH[1]}
+            else
+                echo "Error determining ELF file type!"
+                return 1
+            fi
+
+            # Only run `patchelf` on ELF files of type DYN or dynamically linked ELF files of type EXEC.
+            # This avoids troubling-looking error messages from `patchelf`.
+            if ! [[ ( $type != EXEC && $type != DYN )
+               || ( $type = EXEC && $readelf_info =~ 'There is no dynamic section' ) ]]; then
+                continue
+            fi
+
+            if { printf :; patchelf --print-rpath "$i"; } | grep -q -F ":$TMPDIR/"; then
+                echo "RPATH of binary $i contains a forbidden reference to $TMPDIR/"
+                exit 1
+            fi
+        fi
+
+
         if isScript "$i"; then
             if [ -e "$(dirname "$i")/.$(basename "$i")-wrapped" ]; then
                 if grep -q -F "$TMPDIR/" "$i"; then
